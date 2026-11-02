@@ -1,7 +1,7 @@
 # CodeColiseum Frontend (React + Vite)
 
-The standalone SPA for CodeColiseum. It replaces the Next.js frontend in
-`../CodeColiseum` and communicates exclusively with the Express backend in
+The standalone SPA for CodeColiseum. It replaces the former Next.js frontend and
+communicates exclusively with the Express backend in
 `../CodeColiseum-Express`.
 
 ## Quick start
@@ -38,11 +38,34 @@ Default `VITE_API_URL` is `http://localhost:5000/api`. BetterAuth is hosted at
 | `npm run lint` | ESLint |
 | `npm test` | Vitest (jsdom + React Testing Library) |
 
+## CI/CD
+
+`.github/workflows/frontend.yaml` runs lint, type check, tests and the
+production build on pushes and pull requests to `main`, then (on `main`)
+builds the Docker image with the `VITE_*` build args, pushes it to ECR and
+forces a new ECS deployment.
+
+Repository secrets:
+
+| Secret | Purpose |
+| --- | --- |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | AWS credentials |
+| `ECR_REPOSITORY_FRONTEND` | ECR repository name |
+| `ECS_CLUSTER_APP` | ECS cluster |
+| `ECS_SERVICE_FRONTEND` | ECS service |
+
+Optional repository variables (production defaults are built in):
+`VITE_API_URL`, `VITE_AUTH_URL`, `VITE_APP_URL`. The workflow references a
+`Codecoliseum` environment, matching the previous frontend pipeline.
+
 ## Documentation
 
-- [`../docs/MIGRATION_MAPPING.md`](../docs/MIGRATION_MAPPING.md) — route and feature mapping from Next.js
-- [`../docs/VALIDATION_REPORT.md`](../docs/VALIDATION_REPORT.md) — checks and E2E results
-- [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) — production build, SPA fallback, CORS/cookies
+Workspace docs (in the parent repo, not committed here):
+
+- `../docs/MIGRATION_MAPPING.md` — route and feature mapping from Next.js
+- `../docs/VALIDATION_REPORT.md` — checks and E2E results
+- `../docs/DEPLOYMENT.md` — production build, SPA fallback, CORS/cookies,
+  CI/CD secrets and variables
 
 ## Architecture
 
