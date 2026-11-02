@@ -83,6 +83,7 @@ import { getBackendURL } from "@/lib/api/backend-url";
 interface sentCode {
   questionId: string;
   languageId: number;
+  language: string;
   code: string;
 }
 
@@ -139,7 +140,6 @@ const themeMap: Record<string, any> = {
 };
 
 const availableThemes = Object.keys(themeMap);
-const defaultRuntimeLanguageId = 54;
 const terminalStatuses = new Set([
   "ACCEPTED",
   "PARTIAL",
@@ -331,11 +331,17 @@ function CodingBlock({
     setRunTestCaseResults(undefined);
     setRunError(undefined);
 
-    const languageId = getLanguageId(language) ?? defaultRuntimeLanguageId;
+    const languageId = getLanguageId(language);
+    if (!languageId) {
+      toast.error("Please select a supported language");
+      setRunning(false);
+      return;
+    }
 
     const sentData: sentCode & { moduleProblemId?: string } = {
       questionId,
       languageId,
+      language,
       code,
     };
 
@@ -375,11 +381,16 @@ function CodingBlock({
     setSubmitTestCaseResults(undefined);
 
     try {
-      const languageId = getLanguageId(language) ?? defaultRuntimeLanguageId;
+      const languageId = getLanguageId(language);
+      if (!languageId) {
+        toast.error("Please select a supported language");
+        return;
+      }
 
       const submitCode: sentCode & { moduleProblemId?: string } = {
         questionId,
         languageId,
+        language,
         code,
       };
 
