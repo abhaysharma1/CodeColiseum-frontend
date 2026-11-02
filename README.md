@@ -58,6 +58,11 @@ Optional repository variables (production defaults are built in):
 `VITE_API_URL`, `VITE_AUTH_URL`, `VITE_APP_URL`. The workflow references a
 `Codecoliseum` environment, matching the previous frontend pipeline.
 
+Deployment note: the Nginx image listens on **80 and 3000** because the existing
+ECS `frontend-target-group` targets port 3000 (from the previous Next.js image).
+A Docker `HEALTHCHECK` probes port 3000, and the deploy job waits for
+`aws ecs wait services-stable`.
+
 ## Documentation
 
 Workspace docs (in the parent repo, not committed here):
