@@ -86,7 +86,7 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: ci
     runs-on: ubuntu-latest
-    environment: Codecoliseum
+    environment: Github-actions
 
     steps:
       - name: Checkout
