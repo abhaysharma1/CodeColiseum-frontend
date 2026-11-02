@@ -1,0 +1,140 @@
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import React from "react";
+import { runTestCaseType } from "./interface";
+
+const normalizeOutput = (value?: string | null) =>
+  (value ?? "").replace(/\s+/g, " ").trim();
+
+function TestCaseRunBlock({
+  results,
+  runError,
+}: {
+  results: runTestCaseType | undefined;
+  runError?: string | undefined;
+}) {
+  if (!results) {
+    if (runError) {
+      return (
+        <div className="p-4">
+          <Card className="border-red-500/50">
+            <CardHeader>
+              <CardTitle className="text-destructive">Execution Error</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <pre className="whitespace-pre-wrap text-sm bg-destructive/5 p-3 rounded-md overflow-x-auto">
+                {runError}
+              </pre>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+    return <div className="p-4">Please Run Your Code to See Results</div>;
+  }
+
+  return (
+    <div className="">
+      {results?.responses.map((item, index) => (
+        <div
+          key={`${item.language}-${index}`}
+          className="my-4 animate-fade-down animate-once animate-delay-10"
+        >
+          {(() => {
+            const expected = results.cases[index]?.output ?? "";
+            const stdout = item.run?.stdout ?? "";
+            const compileError = item.compile?.stderr ?? "";
+            const runtimeError = item.run?.stderr ?? "";
+            const hasExitCodeFailure =
+              typeof item.run?.code === "number" && item.run.code !== 0;
+            const hasExecutionError =
+              Boolean(compileError) ||
+              Boolean(runtimeError) ||
+              hasExitCodeFailure;
+
+            const passed =
+              !compileError &&
+              !runtimeError &&
+              !hasExitCodeFailure &&
+              normalizeOutput(stdout) === normalizeOutput(expected);
+
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Test {index + 1}</CardTitle>
+                  <CardDescription className="flex justify-between">
+                    <div>
+                      Exit code: {item.run?.code ?? "N/A"}
+                      {item.run?.signal ? (
+                        <>
+                          <br />
+                          Signal: {item.run.signal}
+                        </>
+                      ) : null}
+                    </div>
+                    <div>
+                      {passed ? (
+                        <span className="text-green-600">Accepted</span>
+                      ) : (
+                        <span className="text-red-600">Failed</span>
+                      )}
+                    </div>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md">
+                    <div className="p-2 px-4 rounded-md dark:bg-background/40 bg-foreground/10 whitespace-break-spaces rounded-t-md">
+                      Input
+                      <br />
+                      {results?.cases[index].input}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                      <div className="p-2 px-4 dark:bg-background/40 bg-foreground/10 whitespace-break-spaces rounded-md overflow-y-scroll overflow-x-scroll">
+                        Expected Output
+                        <br />
+                        {results.cases[index].output}
+                      </div>
+                      <div className="p-2 px-4 dark:bg-background/40 bg-foreground/10 whitespace-break-spaces rounded-md overflow-y-scroll overflow-x-scroll">
+                        Your Output
+                        <br />
+                        {stdout || "(no stdout)"}
+                      </div>
+                    </div>
+                    {compileError && (
+                      <div className="p-2 px-4 bg-red-500/10 whitespace-break-spaces rounded-b-md mt-2 overflow-y-scroll overflow-x-scroll">
+                        Compile Error
+                        <br />
+                        {compileError}
+                      </div>
+                    )}
+                    {runtimeError && (
+                      <div className="p-2 px-4 bg-red-500/10 whitespace-break-spaces rounded-b-md mt-2 overflow-y-scroll overflow-x-scroll">
+                        Runtime Error
+                        <br />
+                        {runtimeError}
+                      </div>
+                    )}
+                    {hasExecutionError && item.run?.output && (
+                      <div className="p-2 px-4 dark:bg-background/40 bg-foreground/10 whitespace-break-spaces rounded-b-md mt-2">
+                        Engine Output
+                        <br />
+                        {item.run.output}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default TestCaseRunBlock;

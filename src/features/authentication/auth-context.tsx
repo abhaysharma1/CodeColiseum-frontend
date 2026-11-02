@@ -1,0 +1,51 @@
+import { createContext, useContext, ReactNode } from "react";
+import { authClient } from "@/features/authentication/auth-client";
+import { BetterFetchError } from "better-auth/react";
+import { User } from "@/types/models";
+
+export type AuthUser = User & {
+  globalRoleId?: string | null;
+};
+
+interface AuthContexttype {
+  user: AuthUser | null | undefined;
+  loading: boolean;
+  refetch: () => void;
+  error: BetterFetchError | null;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContexttype | undefined>(undefined);
+
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const {
+    data,
+    isPending: loading, //loading state
+    error,
+    refetch,
+  } = authClient.useSession();
+
+  const logout = async () => {
+    await authClient.signOut();
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user: data?.user as AuthUser,
+        loading,
+        refetch,
+        error,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  return ctx;
+};

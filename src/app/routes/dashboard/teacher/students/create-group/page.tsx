@@ -1,0 +1,546 @@
+import { SiteHeader } from "@/components/site-header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dropzone,
+  DropzoneContent,
+  DropzoneEmptyState,
+} from "@/components/ui/shadcn-io/dropzone";
+import { Textarea } from "@/components/ui/textarea";
+import { UploadIcon, FileText, X } from "lucide-react";
+import React, { ChangeEvent, useEffect, useState } from "react";
+import { toast } from "sonner";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import axios from "axios";
+import CreateCompletion from "./createCompletion";
+import { getBackendURL } from "@/lib/api/backend-url";
+import { groupType } from "@/types/prisma-enums";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+
+interface newgroupdataprops {
+  groupName: string;
+  description: string;
+  emails: string[];
+  allowJoinByLink: boolean;
+  isAiEnabled: boolean;
+  type: groupType;
+  aiMaxMessages: number;
+  aiMaxTokens: number;
+}
+
+interface CreateGroupResponse {
+  notFoundMembers: string[];
+  notStudents: { email: string; name: string }[];
+  alreadyMembers: { email: string; name: string }[];
+  addedCount: number;
+  successfullyAdded: { email: string; name: string }[];
+}
+interface ApiResponse {
+  status: number;
+  statusText: string;
+  data: CreateGroupResponse;
+}
+
+function CreateGroup() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const [fileUploadDisabled, setFileUploadDisabled] = useState(false);
+  const [textDisabled, setTextDisabled] = useState(false);
+
+  const [loading, setLoading] = useState(false);
+  const [files, setFiles] = useState<File[] | undefined>();
+  const [textEmailField, setTextEmailField] = useState<string | undefined>( // Value from email text field
+    undefined
+  );
+
+  const [response, setResponse] = useState<ApiResponse>();
+
+  const [newGroupData, setNewGroupData] = useState<newgroupdataprops>({
+    groupName: "",
+    description: "",
+    emails: [] as string[],
+    allowJoinByLink: true,
+    isAiEnabled: false,
+    type: "CLASS",
+    aiMaxMessages: 20,
+    aiMaxTokens: 2000,
+  });
+
+  useEffect(() => {
+    if (files) {
+      setTextDisabled(true);
+    } else {
+      setTextDisabled(false);
+    }
+    if (textEmailField) {
+      setFileUploadDisabled(true);
+    } else {
+      setFileUploadDisabled(false);
+    }
+  }, [files, textEmailField]);
+
+  useEffect(() => {
+    if (textEmailField) {
+      // Split by newlines or commas and clean up
+      const emails = textEmailField
+        .split(/[\n,]/)
+        .map((email) => email.trim())
+        .filter((email) => email.length > 0);
+      setNewGroupData((prev) => ({ ...prev, emails: emails }));
+    } else {
+      // Clear emails when text field is cleared (unless file is uploaded)
+      if (!files) {
+        setNewGroupData((prev) => ({ ...prev, emails: [] }));
+      }
+    }
+  }, [textEmailField, files]);
+
+  const checkEmpty = () => {
+    if (!newGroupData.groupName) {
+      toast.error("Please Enter Group Name");
+      return false;
+    }
+    if (!newGroupData.description) {
+      toast.error("Please Enter Group Description");
+      return false;
+    }
+    if (!newGroupData.emails || newGroupData.emails.length === 0) {
+      toast.error("Please Provide Emails");
+      return false;
+    }
+    return true;
+  };
+
+  const createNewGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!checkEmpty()) {
+      return;
+    }
+    setLoading(true);
+    setDialogOpen(true);
+    try {
+      const res = await axios.post(
+        `${getBackendURL()}/teacher/creategroup`,
+        newGroupData,
+        { withCredentials: true }
+      );
+
+      setResponse(res as ApiResponse);
+      toast.success("Group created successfully");
+      console.log("Group creation result:", res.data);
+
+      // Reset form after successful creation
+      setNewGroupData({
+        groupName: "",
+        description: "",
+        emails: [],
+        allowJoinByLink: true,
+        isAiEnabled: false,
+        type: "CLASS",
+        aiMaxMessages: 20,
+        aiMaxTokens: 2000,
+      });
+      setTextEmailField(undefined);
+      setFiles(undefined);
+    } catch (error) {
+      console.log(error);
+      toast.error("Failed to create group");
+      setDialogOpen(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDrop = (files: File[]) => {
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    setFiles([file]);
+
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+
+      // Split by newlines or commas
+      const emails = text
+        .split(/[\n,]/) // split on newline or comma
+        .map((email) => email.trim())
+        .filter((email) => email.length > 0);
+
+      setNewGroupData((prev) => ({ ...prev, emails: emails }));
+    };
+
+    reader.readAsText(file);
+  };
+
+  const handleChange = (
+    event: ChangeEvent<HTMLInputElement> | ChangeEvent<HTMLTextAreaElement>
+  ) => {
+    event.preventDefault();
+    const { name, value } = event.target;
+    setNewGroupData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  return (
+    <div className="min-h-screen">
+      <CreateCompletion
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        creatingGroup={loading}
+        data={response}
+      />
+
+      <div className="w-full">
+        <SiteHeader name={"Create a Group"} />
+      </div>
+
+      <div className="container mx-auto py-8 px-4 max-w-5xl">
+        <Card>
+          <CardHeader>
+            <CardTitle>Group Information</CardTitle>
+            <CardDescription>
+              Create a new student group and add members via email
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={createNewGroup} className="space-y-4">
+              <div className="flex gap-5 items-start">
+                <div className="space-y-2">
+                  <Label htmlFor="groupName">Group Name</Label>
+                  <Input
+                    id="groupName"
+                    placeholder="Enter group name"
+                    onChange={handleChange}
+                    name="groupName"
+                    value={newGroupData.groupName}
+                    className="min-w-115"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="w-20">Group Type</Label>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="w-20" asChild>
+                      <Button variant="outline">
+                        {" "}
+                        {newGroupData.type[0] +
+                          newGroupData.type.slice(1).toLowerCase()}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-40 ">
+                      <DropdownMenuItem
+                        onClick={() =>
+                          setNewGroupData((prev) => ({
+                            ...prev,
+                            type: "CLASS",
+                          }))
+                        }
+                      >
+                        Class
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          setNewGroupData((prev) => ({
+                            ...prev,
+                            type: "BATCH",
+                          }))
+                        }
+                      >
+                        Batch
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          setNewGroupData((prev) => ({
+                            ...prev,
+                            type: "SECTION",
+                          }))
+                        }
+                      >
+                        Section
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          setNewGroupData((prev) => ({
+                            ...prev,
+                            type: "CUSTOM",
+                          }))
+                        }
+                      >
+                        Custom
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <div className="space-y-2">
+                  <Label>AI Assist</Label>
+                  <div className="flex gap-6">
+                    <RadioGroup
+                      value={newGroupData?.isAiEnabled ? "enable" : "disable"}
+                      onValueChange={(value) =>
+                        setNewGroupData((prev) =>
+                          prev
+                            ? { ...prev, isAiEnabled: value === "enable" }
+                            : prev
+                        )
+                      }
+                      className="flex  gap-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem
+                          value="enable"
+                          id="ai-enable"
+                          className="cursor-pointer"
+                        />
+                        <Label htmlFor="ai-enable" className="cursor-pointer">
+                          Enable
+                        </Label>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem
+                          value="disable"
+                          id="ai-disable"
+                          className="cursor-pointer"
+                        />
+                        <Label htmlFor="ai-disable" className="cursor-pointer">
+                          Disable
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Allow Students to have access to AI Assist chat which will
+                    guide them through out the exam.
+                  </p>
+                </div>
+              </div>
+
+              {/* AI Settings Panel */}
+              <div
+                className={`overflow-hidden transition-all duration-500 ease-in-out ${
+                  newGroupData.isAiEnabled
+                    ? "max-h-96 opacity-100"
+                    : "max-h-0 opacity-0"
+                }`}
+              >
+                <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-primary">
+                      AI Settings
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Configure limits for AI Assist
+                    </span>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="aiMaxMessages">Max Messages</Label>
+                      <Input
+                        id="aiMaxMessages"
+                        name="aiMaxMessages"
+                        type="number"
+                        min={1}
+                        value={newGroupData.aiMaxMessages}
+                        onChange={handleChange}
+                        placeholder="e.g. 20"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Maximum number of AI messages per student per question.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="aiMaxTokens">Max Tokens</Label>
+                      <Input
+                        id="aiMaxTokens"
+                        name="aiMaxTokens"
+                        type="number"
+                        min={1}
+                        value={newGroupData.aiMaxTokens}
+                        onChange={handleChange}
+                        placeholder="e.g. 2000"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Maximum total tokens the AI can use per student per
+                        problem.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    placeholder="Enter group description"
+                    name="description"
+                    onChange={handleChange}
+                    value={newGroupData.description}
+                    rows={4}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <Label>Add Student Emails</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Enter emails manually or upload a CSV file
+                  </p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 ">
+                  <div className="space-y-2">
+                    <Textarea
+                      className="min-h-[150px]"
+                      disabled={textDisabled}
+                      placeholder="Enter emails separated by commas or new lines&#10;example@email.com, another@email.com"
+                      value={textEmailField || ""}
+                      onChange={(event) =>
+                        setTextEmailField(event.target.value)
+                      }
+                      rows={6}
+                    />
+                    {textEmailField && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">
+                          {newGroupData.emails.length} emails detected
+                        </Badge>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setTextEmailField(undefined);
+                            if (!files) {
+                              setNewGroupData((prev) => ({
+                                ...prev,
+                                emails: [],
+                              }));
+                            }
+                          }}
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Clear
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  <Dropzone
+                    disabled={fileUploadDisabled}
+                    className=" h-[150px]"
+                    accept={{
+                      "text/csv": [],
+                      "application/vnd.ms-excel": [],
+                      "text/plain": [],
+                    }}
+                    maxFiles={1}
+                    onDrop={handleDrop}
+                  >
+                    <DropzoneEmptyState>
+                      <div className="flex flex-col items-center justify-center gap-2 py-8">
+                        {!files ? (
+                          <>
+                            <div className="flex size-12 items-center justify-center rounded-lg bg-muted">
+                              <UploadIcon className="h-6 w-6 text-muted-foreground" />
+                            </div>
+                            <div className="text-center">
+                              <p className="font-medium text-sm">
+                                Upload CSV file
+                              </p>
+                              <p className="text-muted-foreground text-xs mt-1">
+                                Drag and drop or click to browse
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex size-12 items-center justify-center rounded-lg bg-muted">
+                              <FileText className="h-6 w-6 text-muted-foreground" />
+                            </div>
+                            <div className="text-center">
+                              <p className="font-medium text-sm">
+                                {files[0].name}
+                              </p>
+                              <Badge variant="secondary" className="mt-2">
+                                {newGroupData.emails.length} emails found
+                              </Badge>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setFiles(undefined);
+                                if (!textEmailField) {
+                                  setNewGroupData((prev) => ({
+                                    ...prev,
+                                    emails: [],
+                                  }));
+                                }
+                              }}
+                            >
+                              <X className="h-4 w-4 mr-1" />
+                              Remove
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </DropzoneEmptyState>
+                    <DropzoneContent />
+                  </Dropzone>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setNewGroupData({
+                      groupName: "",
+                      description: "",
+                      emails: [],
+                      allowJoinByLink: true,
+                      isAiEnabled: false,
+                      type: "CLASS",
+                      aiMaxMessages: 20,
+                      aiMaxTokens: 2000,
+                    });
+                    setTextEmailField(undefined);
+                    setFiles(undefined);
+                  }}
+                >
+                  Reset
+                </Button>
+                <Button disabled={loading} type="submit">
+                  {loading ? "Creating Group..." : "Create Group"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export default CreateGroup;

@@ -1,0 +1,223 @@
+import React from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import { Spinner } from "@/components/ui/shadcn-io/spinner";
+import TestCases from "./testCases";
+import TestCaseRunBlock from "./testCaseRunBlock";
+import SubmitCode from "./submitCode";
+import { runTestCaseType, SubmissionResult } from "./interface";
+import { Submissions } from "./submissions";
+import { ProblemSubmissionItem } from "./interface";
+import { aiReviewResult } from "./page";
+import AiReviewResult from "./aiReviewResult";
+import AiChatBotLab from "./aiChatbotLab";
+
+interface descriptionData {
+  id: string;
+  number: number;
+  difficulty: string;
+  description: string;
+  title: string;
+  tags?: { tag: { id: string; name: string } }[];
+  performanceConstraints?: {
+    cppTimeLimitMs: number;
+    javaTimeLimitMs: number;
+    pythonTimeLimitMs: number;
+    jsTimeLimitMs: number;
+    memoryLimitMB: number;
+  } | null;
+}
+
+function DetailsBlock({
+  data,
+  loadingDetails,
+  runTestCaseResults,
+  runError,
+  submitTestCaseResults,
+  tabPage,
+  setTabPage,
+  submissionRefetch,
+  setSubmissionRefetch,
+  submissions,
+  setSubmissions,
+  aiReviewResult,
+  performingAiReview,
+  isAiEnabled,
+  labId,
+  problemId,
+  code,
+  language,
+}: {
+  data: descriptionData | undefined;
+  loadingDetails: boolean;
+  runTestCaseResults: runTestCaseType | undefined;
+  runError: string | undefined;
+  submitTestCaseResults: SubmissionResult | undefined;
+  tabPage: string;
+  setTabPage: (data: string) => void;
+  submissionRefetch: boolean;
+  setSubmissionRefetch: (data: boolean) => void;
+  submissions: ProblemSubmissionItem[] | undefined;
+  setSubmissions: (data: ProblemSubmissionItem[] | undefined) => void;
+  aiReviewResult: aiReviewResult | undefined;
+  performingAiReview: boolean;
+  isAiEnabled?: boolean;
+  labId?: string;
+  problemId?: string;
+  code?: string;
+  language?: string;
+}) {
+  return (
+    <div>
+      <div
+        title="tab navbar"
+        className="flex-1 h-[calc(100vh-6.5rem)] overflow-y-scroll scroll-smooth m-5 outline-1 outline-offset-8 rounded-md py-3 px-7 box-border bg-accent/30 shadow-2xl"
+      >
+        <Tabs
+          defaultValue="description"
+          className="w-full h-full "
+          value={tabPage}
+        >
+          <TabsList>
+            <TabsTrigger
+              value="description"
+              onClick={() => setTabPage("description")}
+              className="cursor-pointer"
+            >
+              Description
+            </TabsTrigger>
+            <TabsTrigger
+              value="testcases"
+              onClick={() => setTabPage("testcases")}
+              className="cursor-pointer"
+            >
+              Test Cases
+            </TabsTrigger>
+            <TabsTrigger
+              value="testcasesrun"
+              onClick={() => setTabPage("testcasesrun")}
+              className="cursor-pointer"
+            >
+              Test Results
+            </TabsTrigger>
+            <TabsTrigger
+              value="submitcode"
+              onClick={() => setTabPage("submitcode")}
+              className="cursor-pointer"
+            >
+              Submit Code
+            </TabsTrigger>
+            <TabsTrigger
+              value="submissions"
+              onClick={() => setTabPage("submissions")}
+              className="cursor-pointer"
+            >
+              Submissions
+            </TabsTrigger>
+            {isAiEnabled && (
+              <TabsTrigger
+                value="aichat"
+                onClick={() => setTabPage("aichat")}
+                className="cursor-pointer"
+              >
+                AI Assist
+              </TabsTrigger>
+            )}
+            {/* <TabsTrigger
+              value="aireviewresult"
+              onClick={() => setTabPage("aireviewresult")}
+              className="cursor-pointer"
+            >
+              AI Review Result
+            </TabsTrigger> */}
+          </TabsList>
+          <TabsContent value="description" className="my-4 mx-1">
+            {loadingDetails ? (
+              <div className="w-full h-full flex justify-center items-center">
+                <Spinner variant="ring" />
+              </div>
+            ) : (
+              <div className="text-foreground ">
+                <div className="text-3xl font-bold mb-3">
+                  {data?.number}
+                  {". "}
+                  {data?.title}
+                </div>
+                <div
+                  className="w-fit px-2 py-0.5 flex bg-accent text-center rounded-xl text-xs"
+                  style={{
+                    color:
+                      data?.difficulty?.toLowerCase() === "hard"
+                        ? "red"
+                        : data?.difficulty?.toLowerCase() === "medium"
+                          ? "orange"
+                          : "green",
+                  }}
+                >
+                  {data?.difficulty
+                    ? data.difficulty.at(0)?.toUpperCase() +
+                      data.difficulty.slice(1)?.toLowerCase()
+                    : ""}
+                </div>
+                {data?.tags && data.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {data.tags.map((t) => (
+                      <span key={t.tag.id} className="px-2 py-0.5 bg-secondary/50 text-xs rounded-full text-muted-foreground">
+                        {t.tag.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-5">
+                  <div className="markdown-wrapper text-foreground mb-6">
+                    <Markdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeHighlight]}
+                    >
+                      {data?.description}
+                    </Markdown>
+                  </div>
+                </div>
+              </div>
+            )}
+          </TabsContent>
+          <TabsContent value="testcases">
+            <TestCases questionId={data?.id ?? ""} constraints={data?.performanceConstraints ?? null} />
+          </TabsContent>
+          <TabsContent value="testcasesrun">
+            <TestCaseRunBlock results={runTestCaseResults} runError={runError} />
+          </TabsContent>
+          <TabsContent value="submitcode">
+            <SubmitCode results={submitTestCaseResults} />
+          </TabsContent>
+          <TabsContent value="submissions">
+            <Submissions
+              problemId={data?.id}
+              submissionRefetch={submissionRefetch}
+              setSubmissionRefetch={setSubmissionRefetch}
+              submissions={submissions}
+              setSubmissions={setSubmissions}
+            />
+          </TabsContent>
+          {isAiEnabled && (
+            <TabsContent value="aichat" className="my-4 mx-1">
+              <AiChatBotLab
+                labId={labId ?? ""}
+                problemId={problemId ?? ""}
+                code={code ?? ""}
+                language={language ?? "cpp"}
+              />
+            </TabsContent>
+          )}
+          {/* <TabsContent value="aireviewresult">
+            <AiReviewResult aiReviewResult={aiReviewResult} performingAiReview={performingAiReview}/>
+          </TabsContent> */}
+        </Tabs>
+      </div>
+    </div>
+  );
+}
+
+export default DetailsBlock;

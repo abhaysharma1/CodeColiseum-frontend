@@ -1,0 +1,743 @@
+import { SiteHeader } from "@/components/site-header";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/shadcn-io/spinner";
+import { Textarea } from "@/components/ui/textarea";
+import React, { useEffect, useState, useTransition } from "react";
+
+import {
+  Bot,
+  BotIcon,
+  CalendarClock,
+  CalendarIcon,
+  Clock,
+  Save,
+  Send,
+  Trash2,
+  Users,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import AutoCompleteSearchBar from "@/components/fuzzySearchBar";
+import { toast } from "sonner";
+import ProblemsTestTable from "./problemsTestTable";
+import { Exam } from "@/types/models";
+import axios from "axios";
+import { useParams, useRouter } from "@/lib/navigation";
+import { getBackendURL } from "@/lib/api/backend-url";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Badge } from "@/components/ui/badge";
+
+interface Group {
+  id: string;
+  name: string;
+  description: string | null;
+  creatorId: string;
+  noOfMembers: number;
+  joinByLink: boolean;
+  createdAt: Date;
+  aiEnabled: boolean;
+}
+
+export interface ExamProblem {
+  id: string;
+  order: number;
+  examId: string;
+  problemId: string;
+}
+
+function combineDateAndTime(date: Date, time: string) {
+  const [hours, minutes] = time.split(":").map(Number);
+
+  const merged = new Date(date);
+  merged.setHours(hours);
+  merged.setMinutes(minutes);
+  merged.setSeconds(0);
+  merged.setMilliseconds(0);
+
+  return merged;
+}
+
+function Page() {
+  const { "exam-id": examId = "" } = useParams();
+
+  const [groups, setGroups] = useState<Group[] | undefined>();
+
+  const [startDateOpen, setStartDateOpen] = React.useState(false);
+  const [endDateOpen, setEndDateOpen] = React.useState(false);
+
+  const [startDate, setStartDate] = React.useState<Date | undefined>(undefined);
+  const [startTime, setStartTime] = React.useState<string | undefined>(
+    undefined
+  );
+
+  const [endDate, setEndDate] = React.useState<Date | undefined>(undefined);
+  const [endTime, setEndTime] = React.useState<string | undefined>(undefined);
+
+  const [examDetails, setExamDetails] = useState<Exam | undefined>();
+  const [selectedGroup, setSelectedGroup] = useState<Group | undefined>();
+
+  const [selectedProblemsId, setSelectedProblemsId] = useState<
+    string[] | undefined
+  >();
+
+  const [isLoading, setLoading] = useState(false);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+
+  const [savingDraft, startSavingDraftTransition] = useTransition();
+  const [publishingTest, startPublishingTestTransition] = useTransition();
+
+  const router = useRouter();
+
+  const changeDetails = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setExamDetails((prev) => (prev ? { ...prev, [name]: value } : prev));
+  };
+
+  const clearSelectedGroup = () => {
+    setSelectedGroup(undefined);
+  };
+
+  const saveDraftFunc = async () => {
+    if (!examDetails || !startDate || !endDate || !startTime || !endTime)
+      return;
+
+    if (examDetails.isPublished) {
+      toast.error("Published Exam cannot be Edited");
+      return;
+    }
+    if (startDate > endDate) {
+      toast.error("Start Date must be < End Date");
+      return;
+    }
+
+    const combinedStartDateTime = combineDateAndTime(startDate, startTime);
+    const combinedEndDateTime = combineDateAndTime(endDate, endTime);
+
+    const updatedExamDetails = {
+      ...examDetails,
+      startDate: combinedStartDateTime,
+      endDate: combinedEndDateTime,
+    };
+
+    if (updatedExamDetails && selectedGroup && selectedProblemsId) {
+      try {
+        const domain = getBackendURL();
+        const res = await axios.post(
+          `${domain}/teacher/exam/savedraft`,
+          {
+            updatedExamDetails,
+            selectedGroups: selectedGroup,
+            selectedProblemsId,
+          },
+          {
+            withCredentials: true,
+          }
+        );
+
+        setExamDetails(updatedExamDetails);
+        toast.success("Draft saved");
+      } catch (error) {
+        toast.error("Couldn't save the draft");
+      }
+    } else {
+      toast.error("Please Select Groups, Problems");
+    }
+  };
+
+  const publishTestFunc = async () => {
+    if (!examDetails || !startDate || !endDate || !startTime || !endTime)
+      return;
+
+    if (examDetails.isPublished) {
+      toast.error("Published Exam cannot be Edited");
+      return;
+    }
+
+    if (startDate > endDate) {
+      toast.error("Start Date must be < End Date");
+      return;
+    }
+
+    const combinedStartDateTime = combineDateAndTime(startDate, startTime);
+    const combinedEndDateTime = combineDateAndTime(endDate, endTime);
+
+    const updatedExamDetails = {
+      ...examDetails,
+      startDate: combinedStartDateTime,
+      endDate: combinedEndDateTime,
+    };
+
+    if (updatedExamDetails && selectedGroup && selectedProblemsId) {
+      try {
+        const domain = getBackendURL();
+        const res = await axios.post(
+          `${domain}/teacher/exam/publishexam`,
+          {
+            updatedExamDetails,
+            selectedGroups: selectedGroup,
+            selectedProblemsId,
+          },
+          {
+            withCredentials: true,
+          }
+        );
+        setExamDetails(updatedExamDetails);
+        toast.success("Test Published");
+        router.push("/dashboard");
+      } catch (error) {
+        toast.error("Couldn't publish the test");
+      }
+    } else {
+      toast.error("Please Select Groups, Problems");
+    }
+  };
+
+  const updateScheduleFunc = async () => {
+    if (!examDetails || !startDate || !endDate || !startTime || !endTime)
+      return;
+
+    if (!examDetails.durationMin || examDetails.durationMin <= 0) {
+      toast.error("Duration must be greater than 0 minutes");
+      return;
+    }
+
+    const combinedStartDateTime = combineDateAndTime(startDate, startTime);
+    const combinedEndDateTime = combineDateAndTime(endDate, endTime);
+
+    if (combinedStartDateTime >= combinedEndDateTime) {
+      toast.error("Start date & time must be before end date & time");
+      return;
+    }
+
+    try {
+      const domain = getBackendURL();
+      await axios.post(
+        `${domain}/teacher/exam/updateexamsettings`,
+        {
+          examId,
+          startDate: combinedStartDateTime,
+          endDate: combinedEndDateTime,
+          durationMin: examDetails.durationMin,
+          sebEnabled: examDetails.sebEnabled,
+        },
+        {
+          withCredentials: true,
+        }
+      );
+
+      setExamDetails((prev) =>
+        prev
+          ? {
+              ...prev,
+              startDate: combinedStartDateTime,
+              endDate: combinedEndDateTime,
+            }
+          : prev
+      );
+      toast.success("Exam settings updated");
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.error ?? "Couldn't update the schedule"
+      );
+    }
+  };
+
+  const fetchExam = async (examId: string) => {
+    try {
+      const domain = getBackendURL();
+      const res = await axios.get(`${domain}/teacher/exam/getexam`, {
+        params: {
+          examId: examId,
+        },
+        withCredentials: true,
+      });
+      return res.data as Exam;
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  useEffect(() => {
+    async function getExamDetails() {
+      setLoading(true);
+      const data = await fetchExam(examId);
+      if (!data) return;
+
+      // Convert startDate and endDate to Date objects
+      data.startDate = new Date(data.startDate);
+      data.endDate = new Date(data.endDate);
+
+      setExamDetails(data);
+      setStartDate(data.startDate);
+      const startHours = String(data.startDate.getHours()).padStart(2, "0");
+      const startMinutes = String(data.startDate.getMinutes()).padStart(2, "0");
+      const startSeconds = String(data.startDate.getSeconds()).padStart(2, "0");
+      setStartTime(`${startHours}:${startMinutes}:${startSeconds}`);
+      setEndDate(data.endDate);
+      const endHours = String(data.endDate.getHours()).padStart(2, "0");
+      const endMinutes = String(data.endDate.getMinutes()).padStart(2, "0");
+      const endSeconds = String(data.endDate.getSeconds()).padStart(2, "0");
+      setEndTime(`${endHours}:${endMinutes}:${endSeconds}`);
+      setLoading(false);
+    }
+    async function getGroups() {
+      try {
+        setLoadingGroups(true);
+        const domain = getBackendURL();
+        const res = await axios.get(`${domain}/teacher/exam/getallgroups`, {
+          params: {
+            take: 100,
+            skip: 0,
+            searchValue: "",
+            groupType: "All",
+          },
+          withCredentials: true,
+        });
+        setGroups(res.data as Group[]);
+      } catch (error) {
+        console.log(error);
+      } finally {
+        setLoadingGroups(false);
+      }
+    }
+    async function fetchSelectedGroups() {
+      const domain = getBackendURL();
+      const res = await axios.get(`${domain}/teacher/exam/getallexamgroups`, {
+        params: {
+          examId: examId,
+        },
+        withCredentials: true,
+      });
+      const groups = res.data as Group[];
+      setSelectedGroup(groups.length > 0 ? groups[0] : undefined);
+    }
+
+    async function fetchSelectedProblems() {
+      try {
+        const domain = getBackendURL();
+        const res = await axios.get(
+          `${domain}/teacher/exam/getallexamproblem`,
+          {
+            params: {
+              examId: examId,
+            },
+            withCredentials: true,
+          }
+        );
+
+        const data = res.data as ExamProblem[];
+
+        if (data.length > 0) {
+          const onlyIds = data.map((item: any) => item.problemId);
+          setSelectedProblemsId(onlyIds);
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    }
+    getExamDetails();
+    getGroups();
+    fetchSelectedGroups();
+    fetchSelectedProblems();
+  }, []);
+
+  return (
+    <div className="container ">
+      <SiteHeader name="Edit Test" />
+      {isLoading || loadingGroups ? (
+        <div className="flex items-center justify-center ">
+          <Spinner variant="infinite" />
+        </div>
+      ) : (
+        <div className="px-4 py-8 max-w-7xl overflow-y-scroll">
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Test Details</CardTitle>
+                <CardDescription>
+                  Configure the basic information for your test
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="title">Test Title</Label>
+                  <Input
+                    id="title"
+                    value={examDetails?.title || ""}
+                    name="title"
+                    onChange={changeDetails}
+                    placeholder="Enter test title"
+                    disabled={examDetails?.isPublished}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={examDetails?.description || ""}
+                    name="description"
+                    onChange={(e) =>
+                      setExamDetails((prev) =>
+                        prev ? { ...prev, description: e.target.value } : prev
+                      )
+                    }
+                    placeholder="Provide a description for this test"
+                    rows={4}
+                    className="resize-none"
+                    disabled={examDetails?.isPublished}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <Label>Safe Exam Browser (SEB)</Label>
+                  <div className="flex gap-6">
+                    <RadioGroup
+                      value={examDetails?.sebEnabled ? "enable" : "disable"}
+                      onValueChange={(value) =>
+                        setExamDetails((prev) =>
+                          prev
+                            ? { ...prev, sebEnabled: value === "enable" }
+                            : prev
+                        )
+                      }
+                      className="flex  gap-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem value="enable" id="seb-enable" />
+                        <Label htmlFor="seb-enable" className="cursor-pointer">
+                          Enable SEB
+                        </Label>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem value="disable" id="seb-disable" />
+                        <Label htmlFor="seb-disable" className="cursor-pointer">
+                          Disable SEB
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Safe Exam Browser provides a secure testing environment by
+                    limiting access to other applications and websites during
+                    the exam.
+                  </p>
+                  {examDetails?.isPublished && (
+                    <p className="text-xs text-amber-600">
+                      This test is published. SEB changes apply immediately —
+                      enabling it means students must open the exam in Safe
+                      Exam Browser.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Schedule & Duration</CardTitle>
+                <CardDescription>
+                  {examDetails?.isPublished
+                    ? "This test is published. Timing and duration can still be changed, including for students who have already started."
+                    : "Set the test timing and duration"}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-3">
+                  <div className="space-y-3">
+                    <Label>Start Date & Time</Label>
+                    <div className="flex gap-2">
+                      <Popover
+                        open={startDateOpen}
+                        onOpenChange={setStartDateOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className="flex-1 justify-start font-normal"
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {startDate
+                              ? startDate.toLocaleDateString()
+                              : "Pick date"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={startDate}
+                            captionLayout="dropdown"
+                            onSelect={(date) => {
+                              setStartDate(date);
+                              setStartDateOpen(false);
+                            }}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="relative">
+                      <Clock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        type="time"
+                        step="1"
+                        value={startTime ?? "10:30:00"}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>End Date & Time</Label>
+                    <div className="flex gap-2">
+                      <Popover open={endDateOpen} onOpenChange={setEndDateOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className="flex-1 justify-start font-normal"
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {endDate
+                              ? endDate.toLocaleDateString()
+                              : "Pick date"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={endDate}
+                            captionLayout="dropdown"
+                            onSelect={(date) => {
+                              setEndDate(date);
+                              setEndDateOpen(false);
+                            }}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="relative">
+                      <Clock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        type="time"
+                        step="1"
+                        value={endTime ?? "10:30:00"}
+                        onChange={(e) => setEndTime(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label htmlFor="duration">Duration (minutes)</Label>
+                    <div className="pt-[44px]">
+                      <Input
+                        id="duration"
+                        type="text"
+                        placeholder="e.g. 120"
+                        value={examDetails?.durationMin || ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === "" || /^\d+$/.test(value)) {
+                            setExamDetails((prev) =>
+                              prev
+                                ? { ...prev, durationMin: parseInt(value) || 0 }
+                                : prev
+                            );
+                          }
+                        }}
+                        onKeyPress={(e) => {
+                          if (!/\d/.test(e.key)) {
+                            e.preventDefault();
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Problems Selection</CardTitle>
+                <CardDescription>Choose problems for this test</CardDescription>
+              </CardHeader>
+              <CardContent
+                className={
+                  examDetails?.isPublished ? "pointer-events-none opacity-60" : ""
+                }
+              >
+                <ProblemsTestTable
+                  selectedProblemsId={selectedProblemsId}
+                  setSelectedProblemsId={setSelectedProblemsId}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Allowed Group
+                </CardTitle>
+                <CardDescription>
+                  Select the group that can access this test
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div
+                  className={
+                    examDetails?.isPublished
+                      ? "pointer-events-none opacity-60"
+                      : undefined
+                  }
+                >
+                  {groups ? (
+                    <AutoCompleteSearchBar
+                      groups={groups}
+                      setSearchedGroup={() => {}}
+                      onSelect={(group) => setSelectedGroup(group)}
+                    />
+                  ) : (
+                    <div className="h-10 animate-pulse bg-muted rounded-md" />
+                  )}
+                </div>
+
+                {selectedGroup && (
+                  <div className="space-y-2">
+                    <Separator />
+                    <Card className="border-muted">
+                      <CardContent className="flex items-center justify-between p-4">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
+                            <Users className="h-5 w-5 text-primary" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium truncate">
+                              {selectedGroup.name}
+                            </p>
+                            <p className="text-sm text-muted-foreground flex gap-3">
+                              {selectedGroup.noOfMembers} members
+                              {selectedGroup.aiEnabled && (
+                                <Badge variant={"secondary"}>
+                                  <Bot /> AI Enabled
+                                </Badge>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        {!examDetails?.isPublished && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={clearSelectedGroup}
+                            className="text-destructive hover:text-destructive flex-shrink-0 ml-2"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4">
+              {examDetails?.isPublished ? (
+                <>
+                  <p className="flex-1 text-sm text-muted-foreground self-center">
+                    Only the schedule, duration, and SEB settings can be changed
+                    after publishing.
+                  </p>
+                  <Button
+                    size="lg"
+                    disabled={savingDraft}
+                    onClick={() =>
+                      startSavingDraftTransition(() => updateScheduleFunc())
+                    }
+                    className="w-full sm:w-auto"
+                  >
+                    {savingDraft ? (
+                      <>
+                        <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <CalendarClock className="mr-2 h-4 w-4" />
+                        Update Settings
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    disabled={savingDraft}
+                    onClick={() =>
+                      startSavingDraftTransition(() => saveDraftFunc())
+                    }
+                    className="w-full sm:w-auto"
+                  >
+                    {savingDraft ? (
+                      <>
+                        <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Save Draft
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    size="lg"
+                    disabled={publishingTest}
+                    onClick={() =>
+                      startPublishingTestTransition(() => publishTestFunc())
+                    }
+                    className="w-full sm:w-auto"
+                  >
+                    {publishingTest ? (
+                      <>
+                        <Spinner variant="infinite" className="mr-2 h-4 w-4" />
+                        Publishing...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="mr-2 h-4 w-4" />
+                        Publish Test
+                      </>
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Page;

@@ -1,0 +1,55 @@
+import { useAuth } from "@/features/authentication/auth-context";
+import { ProtectedRoute } from "@/components/protectedroute";
+import React, { useEffect, useState } from "react";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { usePathname } from "@/lib/navigation";
+import { Outlet } from "react-router-dom";
+
+export default function TeacherLayout() {
+  const { user, loading } = useAuth();
+  const path = usePathname();
+  const [page, setPage] = useState("");
+
+  // Client-side cross-role guard: if a non-teacher lands here, redirect away.
+  useEffect(() => {
+    if (user && !loading && user.globalRoleId !== "role_org_teacher") {
+      window.location.href = "/dashboard";
+    }
+  }, [user, loading]);
+
+  useEffect(() => {
+    if (path == "/dashboard/teacher") {
+      setPage("DASHBOARD");
+    } else if (path.startsWith("/dashboard/teacher/tests")) {
+      setPage("TESTS");
+    } else if (path.startsWith("/dashboard/teacher/students")) {
+      setPage("STUDENTS");
+    } else if (path.startsWith("/dashboard/teacher/my-problems")) {
+      setPage("MY_PROBLEMS");
+    } else if (path.startsWith("/dashboard/teacher/problems")) {
+      setPage("PROBLEMS");
+    } else if (path.startsWith("/dashboard/teacher/analytics")) {
+      setPage("ANALYTICS");
+    } else if (path.startsWith("/dashboard/teacher/labs")) {
+      setPage("LABS");
+    } else if (path.startsWith("/dashboard/teacher/marketplace")) {
+      setPage("MARKETPLACE");
+    } else if (path.startsWith("/dashboard/teacher/announcements")) {
+      setPage("ANNOUNCEMENTS");
+    } else if (path.startsWith("/dashboard/notifications")) {
+      setPage("NOTIFICATIONS");
+    }
+  }, [path]);
+
+  return (
+    <ProtectedRoute requiredPermission="group:view">
+      <SidebarProvider>
+        <AppSidebar user={user} variant="inset" page={page} />
+        <SidebarInset>
+          <Outlet />
+        </SidebarInset>
+      </SidebarProvider>
+    </ProtectedRoute>
+  );
+}

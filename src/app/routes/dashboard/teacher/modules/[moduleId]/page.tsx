@@ -1,0 +1,1084 @@
+import { useState, useEffect, useCallback } from "react";
+import { useParams, useRouter, useSearchParams } from "@/lib/navigation";
+import { useAuth } from "@/features/authentication/auth-context";
+import axios from "axios";
+import { toast } from "sonner";
+import {
+  ArrowLeft,
+  Plus,
+  Edit,
+  Trash2,
+  Search,
+  FlaskConical,
+  BookOpen,
+  BarChart3,
+  ExternalLink,
+  Lock,
+  Unlock,
+  Clock,
+  CalendarX,
+  CalendarDays,
+  Download,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { SiteHeader } from "@/components/site-header";
+import { Spinner } from "@/components/ui/shadcn-io/spinner";
+import { getBackendURL } from "@/lib/api/backend-url";
+import { AddProblemsDialog } from "@/features/labs/components/add-problems-dialog";
+import { ProgressCard } from "@/features/labs/components/progress-card";
+import { AssessmentCard } from "@/features/labs/components/assessment-card";
+import { OverviewCards } from "@/features/labs/components/analytics/overview-cards";
+import { ProblemAnalyticsTable } from "@/features/labs/components/analytics/problem-analytics-table";
+import { StudentProgressTable } from "@/features/labs/components/analytics/student-progress-table";
+import {
+  useTeacherModule,
+  useTeacherModuleProblems,
+  useTeacherAssessment,
+  useTeacherAssessmentResults,
+  useTeacherProblemAnalytics,
+  useTeacherModuleProblemAccess,
+  useUpdateModuleProblemAccess,
+  useTeacherAssignedGroups,
+} from "@/features/labs/hooks/use-labs";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+export default function TeacherModuleDetailPage() {
+  const { moduleId } = useParams<{ moduleId: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const { data: mod, loading: modLoading } = useTeacherModule(moduleId);
+  const { data: assignedGroups, loading: groupsLoading } =
+    useTeacherAssignedGroups(mod?.labId ?? "");
+
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("");
+
+  useEffect(() => {
+    if (assignedGroups.length > 0 && !selectedGroupId) {
+      setSelectedGroupId(assignedGroups[0].groupId);
+    }
+  }, [assignedGroups, selectedGroupId]);
+
+  const {
+    data: problems,
+    loading: problemsLoading,
+    refetch: refetchProblems,
+  } = useTeacherModuleProblems(moduleId);
+  const {
+    data: assessment,
+    loading: assessmentLoading,
+    refetch: refetchAssessment,
+  } = useTeacherAssessment(moduleId);
+  const { data: assessmentResults, loading: resultsLoading } =
+    useTeacherAssessmentResults(moduleId, selectedGroupId || undefined);
+  const { data: problemAnalytics, loading: analyticsLoading } =
+    useTeacherProblemAnalytics(moduleId, selectedGroupId || undefined);
+
+  const [addProblemOpen, setAddProblemOpen] = useState(false);
+  const { user: currentUser } = useAuth();
+  const isCreator = mod?.labCreatorId === currentUser?.id;
+  const [editMode, setEditMode] = useState(searchParams.get("edit") === "true");
+  const [attachExamOpen, setAttachExamOpen] = useState(false);
+
+  if (modLoading) {
+    return (
+      <div className="w-full h-full animate-fade-left animate-once">
+        <SiteHeader name="Module" />
+        <div className="flex items-center justify-center py-20">
+          <Spinner variant="infinite" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full animate-fade-left animate-once">
+      <SiteHeader name={mod?.title || "Module"} />
+      <div className="flex flex-1 flex-col">
+        <div className="@container/main flex flex-1 flex-col gap-2">
+          <div className="flex flex-col gap-4 py-4 px-10 h-[100%] md:gap-6 md:py-6">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() =>
+                  router.push(`/dashboard/teacher/labs/${mod?.labId}`)
+                }
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold">{mod?.title}</h1>
+                  <Badge variant="secondary">Week {mod?.weekNumber}</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {mod?.description || "Module details"}
+                </p>
+              </div>
+              {isCreator && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditMode(!editMode)}
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  {editMode ? "Done" : "Edit"}
+                </Button>
+              )}
+            </div>
+
+            {editMode && mod && isCreator && (
+              <EditModuleCard module={mod} moduleId={moduleId} />
+            )}
+
+            <Tabs defaultValue="problems" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="problems">
+                  <BookOpen className="h-4 w-4 mr-1" />
+                  Problems
+                </TabsTrigger>
+                <TabsTrigger value="assessment">
+                  <FlaskConical className="h-4 w-4 mr-1" />
+                  Assessment
+                </TabsTrigger>
+                <TabsTrigger value="analytics">
+                  <BarChart3 className="h-4 w-4 mr-1" />
+                  Analytics
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="problems" className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">Module Problems</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {problems.length} problem
+                      {problems.length !== 1 ? "s" : ""} in this module
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isCreator && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAddProblemOpen(true)}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add Problems
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {problems.length === 0 ? (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <BookOpen className="h-12 w-12 text-muted-foreground/50 mb-3" />
+                      <p className="text-muted-foreground mb-1">
+                        No problems yet
+                      </p>
+                      {isCreator && (
+                        <>
+                          <p className="text-xs text-muted-foreground mb-4">
+                            Add problems from the problem bank
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setAddProblemOpen(true)}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Add Problems
+                          </Button>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="overflow-hidden rounded-lg border">
+                    <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Problem</TableHead>
+                            <TableHead>Difficulty</TableHead>
+                            <TableHead>Access</TableHead>
+                            <TableHead></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {problems.map((p) => (
+                            <TableRow key={p.id}>
+                              <TableCell className="font-medium">
+                                {p.problem.number}. {p.problem.title}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    p.problem.difficulty === "EASY"
+                                      ? "text-green-600"
+                                      : p.problem.difficulty === "MEDIUM"
+                                        ? "text-yellow-600"
+                                        : "text-red-600"
+                                  }
+                                >
+                                  {p.problem.difficulty}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <AccessBadge
+                                  isUnlocked={p.isUnlocked}
+                                  availableFrom={p.availableFrom}
+                                  availableUntil={p.availableUntil}
+                                />
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  {isCreator && (
+                                    <ManageAccessModal
+                                      moduleProblemId={p.id}
+                                      isUnlocked={p.isUnlocked}
+                                      availableFrom={p.availableFrom}
+                                      availableUntil={p.availableUntil}
+                                      onUpdated={refetchProblems}
+                                    />
+                                  )}
+                                  {isCreator && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-destructive"
+                                      onClick={async () => {
+                                        if (
+                                          !confirm(
+                                            "Remove this problem from the module?"
+                                          )
+                                        )
+                                          return;
+                                        try {
+                                          await axios.delete(
+                                            `${getBackendURL()}/teacher/module-problems/${p.id}`,
+                                            { withCredentials: true }
+                                          );
+                                          toast.success("Problem removed");
+                                          refetchProblems();
+                                        } catch (err: any) {
+                                          toast.error(
+                                            err?.response?.data?.message ||
+                                              "Failed to remove"
+                                          );
+                                        }
+                                      }}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                <AddProblemsDialog
+                  open={addProblemOpen}
+                  onOpenChange={setAddProblemOpen}
+                  moduleId={moduleId}
+                  onAdded={refetchProblems}
+                  existingIds={problems.map((p) => p.problemId)}
+                />
+              </TabsContent>
+
+              <TabsContent value="assessment" className="space-y-4">
+                <AssessmentTab
+                  moduleId={moduleId}
+                  assessment={assessment}
+                  loading={assessmentLoading}
+                  onRefresh={refetchAssessment}
+                  isCreator={isCreator}
+                />
+              </TabsContent>
+
+              <TabsContent value="analytics" className="space-y-6">
+                <AnalyticsTab
+                  moduleId={moduleId}
+                  groups={assignedGroups}
+                  selectedGroupId={selectedGroupId}
+                  onGroupChange={setSelectedGroupId}
+                  groupsLoading={groupsLoading}
+                  assessmentResults={assessmentResults}
+                  resultsLoading={resultsLoading}
+                  problemAnalytics={problemAnalytics}
+                  analyticsLoading={analyticsLoading}
+                />
+              </TabsContent>
+            </Tabs>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditModuleCard({
+  module,
+  moduleId,
+}: {
+  module: any;
+  moduleId: string;
+}) {
+  const [title, setTitle] = useState(module.title || "");
+  const [description, setDescription] = useState(module.description || "");
+  const [weekNumber, setWeekNumber] = useState(String(module.weekNumber || ""));
+  const [unlockAt, setUnlockAt] = useState(
+    module.unlockAt ? new Date(module.unlockAt).toISOString().slice(0, 16) : ""
+  );
+  const [dueAt, setDueAt] = useState(
+    module.dueAt ? new Date(module.dueAt).toISOString().slice(0, 16) : ""
+  );
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      const body: any = {};
+      if (title.trim()) body.title = title.trim();
+      if (description.trim()) body.description = description.trim();
+      if (weekNumber) body.weekNumber = parseInt(weekNumber);
+      if (unlockAt) body.unlockAt = new Date(unlockAt).toISOString();
+      if (dueAt) body.dueAt = new Date(dueAt).toISOString();
+      else body.dueAt = null;
+
+      await axios.patch(
+        `${getBackendURL()}/teacher/modules/${moduleId}`,
+        body,
+        {
+          withCredentials: true,
+        }
+      );
+      toast.success("Module updated");
+      window.location.reload();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Edit Module</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Week Number</Label>
+            <Input
+              type="number"
+              value={weekNumber}
+              onChange={(e) => setWeekNumber(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label>Description</Label>
+          <Textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Unlock Date</Label>
+            <Input
+              type="datetime-local"
+              value={unlockAt}
+              onChange={(e) => setUnlockAt(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Due Date</Label>
+            <Input
+              type="datetime-local"
+              value={dueAt}
+              onChange={(e) => setDueAt(e.target.value)}
+            />
+          </div>
+        </div>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving..." : "Save Changes"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+
+function AssessmentTab({
+  moduleId,
+  assessment,
+  loading,
+  onRefresh,
+  isCreator,
+}: {
+  moduleId: string;
+  assessment: any;
+  loading: boolean;
+  onRefresh: () => void;
+  isCreator: boolean;
+}) {
+  const router = useRouter();
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [examTitle, setExamTitle] = useState("");
+  const [durationMin, setDurationMin] = useState("60");
+  const [creating, setCreating] = useState(false);
+
+  const handleCreateAssessment = async () => {
+    try {
+      setCreating(true);
+      const res = await axios.post(
+        `${getBackendURL()}/teacher/modules/${moduleId}/create-assessment`,
+        {
+          title: examTitle || undefined,
+          durationMin: parseInt(durationMin) || 60,
+        },
+        { withCredentials: true }
+      );
+      toast.success("Assessment created");
+      setCreateOpen(false);
+      onRefresh();
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.message || "Failed to create assessment"
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRemoveAssessment = async () => {
+    if (!confirm("Remove the assessment exam from this module?")) return;
+    try {
+      await axios.delete(
+        `${getBackendURL()}/teacher/modules/${moduleId}/assessment`,
+        {
+          withCredentials: true,
+        }
+      );
+      toast.success("Assessment removed");
+      onRefresh();
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.message || "Failed to remove assessment"
+      );
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner variant="infinite" />
+      </div>
+    );
+  }
+
+  if (!assessment) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <FlaskConical className="h-12 w-12 text-muted-foreground/50 mb-3" />
+          <p className="text-muted-foreground mb-1">No assessment set</p>
+          <p className="text-xs text-muted-foreground mb-4">
+            Create or attach an assessment exam to this module
+          </p>
+          <div className="flex items-center gap-3">
+            {isCreator && (
+              <Dialog open={attachOpen} onOpenChange={setAttachOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <ExternalLink className="h-4 w-4 mr-1" />
+                    Attach Existing Exam
+                  </Button>
+                </DialogTrigger>
+                <AttachExamDialog
+                  moduleId={moduleId}
+                  onAttached={() => {
+                    setAttachOpen(false);
+                    onRefresh();
+                  }}
+                />
+              </Dialog>
+            )}
+            {isCreator && (
+              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <Plus className="h-4 w-4 mr-1" />
+                    Create New Assessment
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Assessment</DialogTitle>
+                  <DialogDescription>
+                    A new exam will be created and linked to this module
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Exam Title</Label>
+                    <Input
+                      placeholder="e.g. Week 1 Assessment"
+                      value={examTitle}
+                      onChange={(e) => setExamTitle(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Defaults to "{document.title} - Assessment"
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Duration (minutes)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={durationMin}
+                      onChange={(e) => setDurationMin(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setCreateOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreateAssessment} disabled={creating}>
+                    {creating ? "Creating..." : "Create & Link"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <AssessmentCard
+        title={assessment.title}
+        startTime={assessment.startTime}
+        endTime={assessment.endTime}
+        durationMinutes={assessment.durationMinutes}
+        status={assessment.status}
+        variant="teacher"
+        onEnter={() =>
+          router.push(`/dashboard/teacher/tests/edit/${assessment.examId}`)
+        }
+      />
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            router.push(`/dashboard/teacher/tests/edit/${assessment.examId}`)
+          }
+        >
+          <ExternalLink className="h-4 w-4 mr-1" />
+          Open Exam
+        </Button>
+        {isCreator && (
+          <Dialog open={attachOpen} onOpenChange={setAttachOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                Replace Exam
+              </Button>
+            </DialogTrigger>
+            <AttachExamDialog
+              moduleId={moduleId}
+              onAttached={() => {
+                setAttachOpen(false);
+                onRefresh();
+              }}
+            />
+          </Dialog>
+        )}
+        {isCreator && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-destructive"
+            onClick={handleRemoveAssessment}
+          >
+            Remove Exam
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AttachExamDialog({
+  moduleId,
+  onAttached,
+}: {
+  moduleId: string;
+  onAttached: () => void;
+}) {
+  const [exams, setExams] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
+
+  useEffect(() => {
+    const fetch = async () => {
+      try {
+        setLoading(true);
+        const res = await axios.get(
+          `${getBackendURL()}/teacher/exam/fetchallexams`,
+          {
+            params: { take: 50, skip: 0 },
+            withCredentials: true,
+          }
+        );
+        const data = res.data as any;
+        setExams((data.exams as any[]) ?? []);
+      } catch {
+        setExams([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch();
+  }, []);
+
+  const filtered = exams.filter((e) =>
+    e.title?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleAttach = async () => {
+    if (!selectedId) return;
+    try {
+      setAttaching(true);
+      await axios.post(
+        `${getBackendURL()}/teacher/modules/${moduleId}/assessment`,
+        { examId: selectedId },
+        { withCredentials: true }
+      );
+      toast.success("Exam attached to module");
+      onAttached();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to attach exam");
+    } finally {
+      setAttaching(false);
+    }
+  };
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Attach Existing Exam</DialogTitle>
+        <DialogDescription>
+          Select an exam to attach to this module
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search exams..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <div className="max-h-60 overflow-y-auto space-y-1">
+          {loading ? (
+            <div className="flex justify-center py-4">
+              <Spinner variant="infinite" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No exams found
+            </p>
+          ) : (
+            filtered.map((e: any) => (
+              <div
+                key={e.id}
+                className={`flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-accent ${
+                  selectedId === e.id ? "bg-accent" : ""
+                }`}
+                onClick={() => setSelectedId(e.id)}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                    selectedId === e.id
+                      ? "bg-primary border-primary"
+                      : "border-input"
+                  }`}
+                >
+                  {selectedId === e.id && (
+                    <span className="text-primary-foreground text-xs">✓</span>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium">{e.title}</span>
+                  <p className="text-xs text-muted-foreground">
+                    {e.isPublished ? "Published" : "Draft"}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => {}}>
+          Cancel
+        </Button>
+        <Button onClick={handleAttach} disabled={!selectedId || attaching}>
+          {attaching ? "Attaching..." : "Attach"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function AnalyticsTab({
+  moduleId,
+  groups,
+  selectedGroupId,
+  onGroupChange,
+  groupsLoading,
+  assessmentResults,
+  resultsLoading,
+  problemAnalytics,
+  analyticsLoading,
+}: {
+  moduleId: string;
+  groups: { groupId: string; groupName: string }[];
+  selectedGroupId: string;
+  onGroupChange: (id: string) => void;
+  groupsLoading: boolean;
+  assessmentResults: any;
+  resultsLoading: boolean;
+  problemAnalytics: any[];
+  analyticsLoading: boolean;
+}) {
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportExcel = useCallback(async () => {
+    setExporting(true);
+    try {
+      const params: any = {};
+      if (selectedGroupId) params.groupId = selectedGroupId;
+      const response = await axios.get(
+        `${getBackendURL()}/teacher/modules/${moduleId}/export-excel`,
+        { params, withCredentials: true, responseType: "blob" },
+      );
+      const url = window.URL.createObjectURL(response.data as Blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `module-analytics-${moduleId}.xlsx`,
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.parentElement?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      toast.success("Analytics exported successfully");
+    } catch {
+      toast.error("Failed to export analytics");
+    } finally {
+      setExporting(false);
+    }
+  }, [moduleId, selectedGroupId]);
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <Select
+          value={selectedGroupId}
+          onValueChange={onGroupChange}
+          disabled={groupsLoading || groups.length === 0}
+        >
+          <SelectTrigger className="w-[240px]">
+            <SelectValue
+              placeholder={
+                groupsLoading ? "Loading groups..." : "Select group"
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.map((group) => (
+              <SelectItem key={group.groupId} value={group.groupId}>
+                {group.groupName}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExportExcel}
+          disabled={exporting || !selectedGroupId}
+        >
+          <Download className="w-4 h-4 mr-2" />
+          {exporting ? "Generating..." : "Export to Excel"}
+        </Button>
+      </div>
+
+      <OverviewCards
+        totalStudents={assessmentResults?.totalStudents ?? 0}
+        started={assessmentResults?.attemptedStudents ?? 0}
+        completed={0}
+        completionRate={
+          assessmentResults?.totalStudents
+            ? Math.round(
+                ((assessmentResults?.attemptedStudents ?? 0) /
+                  assessmentResults.totalStudents) *
+                  100
+              )
+            : 0
+        }
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Problem Analytics</CardTitle>
+          <CardDescription>
+            Per-problem solve rates across all students
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ProblemAnalyticsTable
+            data={problemAnalytics}
+            loading={analyticsLoading}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Student Progress</CardTitle>
+          <CardDescription>
+            Per-student completion status. Expand a row for per-question
+            attempt and submission details.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StudentProgressTable
+            moduleId={moduleId}
+            groupId={selectedGroupId || undefined}
+          />
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+function AccessBadge({
+  isUnlocked,
+  availableFrom,
+  availableUntil,
+}: {
+  isUnlocked: boolean;
+  availableFrom: string | null;
+  availableUntil: string | null;
+}) {
+  const now = new Date();
+  const from = availableFrom ? new Date(availableFrom) : null;
+  const until = availableUntil ? new Date(availableUntil) : null;
+
+  if (!isUnlocked) {
+    return (
+      <Badge variant="outline" className="text-red-600 border-red-300 bg-red-50 dark:bg-red-950/20 gap-1">
+        <Lock className="h-3 w-3" /> Locked
+      </Badge>
+    );
+  }
+
+  if (from && now < from) {
+    return (
+      <Badge variant="outline" className="text-blue-600 border-blue-300 bg-blue-50 dark:bg-blue-950/20 gap-1">
+        <Clock className="h-3 w-3" /> Scheduled
+      </Badge>
+    );
+  }
+
+  if (until && now > until) {
+    return (
+      <Badge variant="outline" className="text-gray-600 border-gray-300 bg-gray-50 dark:bg-gray-800 gap-1">
+        <CalendarX className="h-3 w-3" /> Expired
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50 dark:bg-green-950/20 gap-1">
+      <Unlock className="h-3 w-3" /> Unlocked
+    </Badge>
+  );
+}
+
+function ManageAccessModal({
+  moduleProblemId,
+  isUnlocked,
+  availableFrom,
+  availableUntil,
+  onUpdated,
+}: {
+  moduleProblemId: string;
+  isUnlocked: boolean;
+  availableFrom: string | null;
+  availableUntil: string | null;
+  onUpdated: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [unlocked, setUnlocked] = useState(isUnlocked);
+  const [fromDate, setFromDate] = useState(
+    availableFrom ? new Date(availableFrom).toISOString().slice(0, 16) : ""
+  );
+  const [untilDate, setUntilDate] = useState(
+    availableUntil ? new Date(availableUntil).toISOString().slice(0, 16) : ""
+  );
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      const body: any = { isUnlocked: unlocked };
+      if (fromDate) body.availableFrom = new Date(fromDate).toISOString();
+      else body.availableFrom = null;
+      if (untilDate) body.availableUntil = new Date(untilDate).toISOString();
+      else body.availableUntil = null;
+
+      await axios.patch(
+        `${getBackendURL()}/teacher/module-problems/${moduleProblemId}/access`,
+        body,
+        { withCredentials: true }
+      );
+      toast.success("Access settings updated");
+      setOpen(false);
+      onUpdated();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to update access");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Unlock className="h-3 w-3 mr-1" />
+          Manage Access
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Manage Problem Access</DialogTitle>
+          <DialogDescription>
+            Control when students can access this problem
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-base">Problem Unlocked</Label>
+              <p className="text-sm text-muted-foreground">
+                Allow students to access this problem
+              </p>
+            </div>
+            <Switch checked={unlocked} onCheckedChange={setUnlocked} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Available From</Label>
+              <Input
+                type="datetime-local"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                disabled={!unlocked}
+              />
+              <p className="text-xs text-muted-foreground">Optional</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Available Until</Label>
+              <Input
+                type="datetime-local"
+                value={untilDate}
+                onChange={(e) => setUntilDate(e.target.value)}
+                disabled={!unlocked}
+              />
+              <p className="text-xs text-muted-foreground">Optional</p>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving..." : "Save Changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

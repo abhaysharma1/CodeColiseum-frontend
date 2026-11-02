@@ -1,0 +1,896 @@
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import { usePathname, useRouter, useSearchParams } from "@/lib/navigation";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Download, Loader2 } from "lucide-react";
+import { getBackendURL } from "@/lib/api/backend-url";
+import { usePermission } from "@/hooks/usePermission";
+
+import { OverviewCards } from "@/features/analytics/components/OverviewCards";
+import { AnalyticsCharts } from "@/features/analytics/components/AnalyticsCharts";
+import {
+  StudentFilters,
+  FilterState,
+} from "@/features/analytics/components/StudentFilters";
+import { StudentTable, StudentData } from "@/features/analytics/components/StudentTable";
+import { StudentExpandedRow } from "@/features/analytics/components/StudentExpandedRow";
+import { AnalyticsPagination } from "@/features/analytics/components/AnalyticsPagination";
+import {
+  ProblemFilters,
+  ProblemFilterState,
+} from "@/features/analytics/components/ProblemFilters";
+import { ProblemTable, ProblemRow } from "@/features/analytics/components/ProblemTable";
+import {
+  ProblemExpandedRow,
+  ProblemDetailResponse,
+  ProblemStudentsResponse,
+} from "@/features/analytics/components/ProblemExpandedRow";
+import {
+  ExamFilters,
+  ExamFilterState,
+} from "@/features/analytics/components/ExamFilters";
+import { ExamTable, ExamRow } from "@/features/analytics/components/ExamTable";
+import {
+  ExamExpandedRow,
+  ExamDetailsResponse,
+} from "@/features/analytics/components/ExamExpandedRow";
+
+type GroupStatsResponse = {
+  groupId: string;
+  groupName: string;
+  totalExams: number;
+  totalStudents: number;
+  avgScoreAllExams: number;
+  overallPassRate: number;
+  lowestExamAvg?: number;
+  highestExamAvg?: number;
+};
+
+type StudentsResponse = {
+  data: Array<{
+    id: string;
+    name: string;
+    email: string;
+    rank: number;
+    avgScore: number;
+    totalAttempts: number;
+    avgAttemptsPerProblem: number;
+    completionPercentage: number;
+    weakTopics: string[];
+    strongTopics: string[];
+    scoreTrend: string;
+    lastActive: string | null;
+    avgTimePerProblem: number;
+  }>;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+};
+
+type StudentDetailResponse = {
+  problemPerformance: Array<{
+    problemId: string;
+    problemNumber: number;
+    problemTitle: string;
+    difficulty: string;
+    attempts: number;
+    solved: boolean;
+    isWeak: boolean;
+    successRate: number;
+    avgTime: number;
+  }>;
+  recentSubmissions: Array<{
+    id: string;
+    problem: string;
+    status: string;
+    score: number;
+    createdAt: string;
+  }>;
+  examHistory: Array<{
+    examId: string;
+    examTitle: string;
+    score: number;
+    createdAt: string;
+  }>;
+};
+
+type ProblemsResponse = {
+  data: ProblemRow[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+};
+
+type ExamsResponse = {
+  data: ExamRow[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+};
+
+type TeacherGroup = {
+  id: string;
+  name: string;
+};
+
+const BACKEND_URL = getBackendURL();
+
+export default function TeacherAnalyticsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const queryGroupId = params.get("groupId") ?? "";
+
+  const [groups, setGroups] = useState<TeacherGroup[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>(queryGroupId);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+
+  const canViewAnalytics = usePermission(
+    "analytics:view",
+    selectedGroupId || undefined
+  );
+
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "students" | "problems" | "exams"
+  >("overview");
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+  const [isLoadingStudentDetail, setIsLoadingStudentDetail] = useState(false);
+
+  const [isLoadingProblems, setIsLoadingProblems] = useState(false);
+  const [isLoadingProblemDetail, setIsLoadingProblemDetail] = useState(false);
+
+  const [isLoadingExams, setIsLoadingExams] = useState(false);
+  const [isLoadingExamDetail, setIsLoadingExamDetail] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const [groupStats, setGroupStats] = useState<GroupStatsResponse | null>(null);
+  const [students, setStudents] = useState<StudentData[]>([]);
+  const [totalStudents, setTotalStudents] = useState(0);
+
+  const [problems, setProblems] = useState<ProblemRow[]>([]);
+  const [totalProblems, setTotalProblems] = useState(0);
+
+  const [exams, setExams] = useState<ExamRow[]>([]);
+  const [totalExams, setTotalExams] = useState(0);
+
+  const [chartTrend, setChartTrend] = useState<
+    Array<{ date: string; avgScore: number; count: number }>
+  >([]);
+
+  const [filters, setFilters] = useState<FilterState>({
+    search: "",
+    scoreMin: 0,
+    scoreMax: 100,
+    completionStatus: "all",
+    weakTopic: "",
+  });
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  const [problemFilters, setProblemFilters] = useState<ProblemFilterState>({
+    search: "",
+    difficultyTier: "all",
+    sortBy: "attemptedCount",
+    sortOrder: "desc",
+  });
+  const [problemPage, setProblemPage] = useState(1);
+  const [problemPageSize, setProblemPageSize] = useState(25);
+
+  const [examFilters, setExamFilters] = useState<ExamFilterState>({
+    search: "",
+    status: "all",
+    sortBy: "endDate",
+    sortOrder: "desc",
+    dateFrom: "",
+    dateTo: "",
+  });
+  const [examPage, setExamPage] = useState(1);
+  const [examPageSize, setExamPageSize] = useState(25);
+
+  const [expandedStudentId, setExpandedStudentId] = useState<string | null>(
+    null
+  );
+  const [expandedStudentData, setExpandedStudentData] = useState<
+    StudentDetailResponse | undefined
+  >();
+
+  const [expandedProblemId, setExpandedProblemId] = useState<string | null>(
+    null
+  );
+  const [expandedProblemDetails, setExpandedProblemDetails] = useState<
+    ProblemDetailResponse | undefined
+  >();
+  const [expandedProblemStudents, setExpandedProblemStudents] = useState<
+    ProblemStudentsResponse | undefined
+  >();
+
+  const [expandedExamId, setExpandedExamId] = useState<string | null>(null);
+  const [expandedExamData, setExpandedExamData] = useState<
+    ExamDetailsResponse | undefined
+  >();
+
+  const updateUrlGroupId = useCallback(
+    (nextGroupId: string) => {
+      const nextParams = new URLSearchParams(params.toString());
+      nextParams.set("groupId", nextGroupId);
+      router.replace(`${pathname}?${nextParams.toString()}`);
+    },
+    [params, pathname, router]
+  );
+
+  const fetchGroups = useCallback(async () => {
+    setIsLoadingGroups(true);
+    try {
+      const res = await axios.get<TeacherGroup[]>(
+        `${BACKEND_URL}/teacher/getallgroups`,
+        {
+          params: {
+            take: 200,
+            skip: 0,
+            searchValue: "",
+            groupType: "ALL",
+          },
+          withCredentials: true,
+        }
+      );
+
+      const fetchedGroups = res.data || [];
+      setGroups(fetchedGroups);
+
+      if (!fetchedGroups.length) {
+        setSelectedGroupId("");
+        return;
+      }
+
+      const hasQueryGroup =
+        queryGroupId && fetchedGroups.some((g) => g.id === queryGroupId);
+      const defaultGroupId = hasQueryGroup ? queryGroupId : fetchedGroups[0].id;
+
+      setSelectedGroupId(defaultGroupId);
+
+      if (defaultGroupId !== queryGroupId) {
+        updateUrlGroupId(defaultGroupId);
+      }
+    } finally {
+      setIsLoadingGroups(false);
+    }
+  }, [queryGroupId, updateUrlGroupId]);
+
+  const fetchStats = useCallback(async () => {
+    if (!selectedGroupId) return;
+    setIsLoadingStats(true);
+    try {
+      const res = await axios.get<GroupStatsResponse>(
+        `${BACKEND_URL}/teacher/group-overall-stats`,
+        {
+          params: { groupId: selectedGroupId },
+          withCredentials: true,
+        }
+      );
+      setGroupStats(res.data);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, [selectedGroupId]);
+
+  const fetchStudents = useCallback(async () => {
+    if (!selectedGroupId) return;
+    setIsLoadingStudents(true);
+    try {
+      const res = await axios.get<StudentsResponse>(
+        `${BACKEND_URL}/teacher/analytics/students`,
+        {
+          params: {
+            groupId: selectedGroupId,
+            page: currentPage,
+            limit: pageSize,
+            search: filters.search,
+            scoreMin: filters.scoreMin,
+            scoreMax: filters.scoreMax,
+            completionStatus: filters.completionStatus,
+            weakTopic: filters.weakTopic,
+          },
+          withCredentials: true,
+        }
+      );
+
+      setStudents(
+        res.data.data.map((s) => ({
+          ...s,
+          lastActive: s.lastActive ? new Date(s.lastActive) : null,
+        }))
+      );
+      setTotalStudents(res.data.pagination.total);
+    } finally {
+      setIsLoadingStudents(false);
+    }
+  }, [selectedGroupId, currentPage, pageSize, filters]);
+
+  const fetchProblems = useCallback(async () => {
+    if (!selectedGroupId || !canViewAnalytics) return;
+    setIsLoadingProblems(true);
+    try {
+      const res = await axios.get<ProblemsResponse>(
+        `${BACKEND_URL}/teacher/analytics/problems`,
+        {
+          params: {
+            groupId: selectedGroupId,
+            page: problemPage,
+            limit: problemPageSize,
+            search: problemFilters.search,
+            difficultyTier: problemFilters.difficultyTier,
+            sortBy: problemFilters.sortBy,
+            sortOrder: problemFilters.sortOrder,
+          },
+          withCredentials: true,
+        }
+      );
+
+      setProblems(res.data.data);
+      setTotalProblems(res.data.pagination.total);
+    } finally {
+      setIsLoadingProblems(false);
+    }
+  }, [
+    selectedGroupId,
+    canViewAnalytics,
+    problemPage,
+    problemPageSize,
+    problemFilters,
+  ]);
+
+  const fetchProblemDetails = useCallback(
+    async (problemId: string) => {
+      if (!selectedGroupId || !canViewAnalytics) return;
+      const res = await axios.get<ProblemDetailResponse>(
+        `${BACKEND_URL}/teacher/analytics/problems/${problemId}/details`,
+        {
+          params: { groupId: selectedGroupId },
+          withCredentials: true,
+        }
+      );
+      setExpandedProblemDetails(res.data);
+    },
+    [selectedGroupId, canViewAnalytics]
+  );
+
+  const fetchProblemStudents = useCallback(
+    async (problemId: string) => {
+      if (!selectedGroupId || !canViewAnalytics) return;
+      const res = await axios.get<ProblemStudentsResponse>(
+        `${BACKEND_URL}/teacher/analytics/problems/${problemId}/students`,
+        {
+          params: {
+            groupId: selectedGroupId,
+            page: 1,
+            limit: 10,
+            solvedStatus: "all",
+          },
+          withCredentials: true,
+        }
+      );
+      setExpandedProblemStudents(res.data);
+    },
+    [selectedGroupId, canViewAnalytics]
+  );
+
+  const fetchExams = useCallback(async () => {
+    if (!selectedGroupId || !canViewAnalytics) return;
+    setIsLoadingExams(true);
+    try {
+      const res = await axios.get<ExamsResponse>(
+        `${BACKEND_URL}/teacher/analytics/exams`,
+        {
+          params: {
+            groupId: selectedGroupId,
+            page: examPage,
+            limit: examPageSize,
+            search: examFilters.search,
+            status: examFilters.status,
+            dateFrom: examFilters.dateFrom || undefined,
+            dateTo: examFilters.dateTo || undefined,
+            sortBy: examFilters.sortBy,
+            sortOrder: examFilters.sortOrder,
+          },
+          withCredentials: true,
+        }
+      );
+
+      setExams(res.data.data);
+      setTotalExams(res.data.pagination.total);
+    } finally {
+      setIsLoadingExams(false);
+    }
+  }, [selectedGroupId, canViewAnalytics, examPage, examPageSize, examFilters]);
+
+  const fetchExamDetails = useCallback(
+    async (examId: string) => {
+      if (!selectedGroupId || !canViewAnalytics) return;
+      const res = await axios.get<ExamDetailsResponse>(
+        `${BACKEND_URL}/teacher/analytics/exams/${examId}/details`,
+        {
+          params: { groupId: selectedGroupId },
+          withCredentials: true,
+        }
+      );
+      setExpandedExamData(res.data);
+    },
+    [selectedGroupId, canViewAnalytics]
+  );
+
+  const fetchChartTrend = useCallback(async () => {
+    if (!selectedGroupId || !canViewAnalytics) return;
+    try {
+      const res = await axios.get<{ performanceTrend?: Array<{ date: string; avgScore: number; count: number }> }>(
+        `${BACKEND_URL}/teacher/analytics/charts`,
+        {
+          params: { groupId: selectedGroupId, type: "trend" },
+          withCredentials: true,
+        },
+      );
+      setChartTrend(res.data.performanceTrend || []);
+    } catch {
+      setChartTrend([]);
+    }
+  }, [selectedGroupId, canViewAnalytics]);
+
+  const handleExportCSV = useCallback(async () => {
+    if (!selectedGroupId) return;
+    setIsExporting(true);
+    try {
+      const res = await axios.get<Blob>(`${BACKEND_URL}/teacher/analytics/export-csv`, {
+        params: { groupId: selectedGroupId },
+        withCredentials: true,
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `analytics_${selectedGroupId}_${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [selectedGroupId]);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!selectedGroupId) return;
+    setIsExporting(true);
+    try {
+      const res = await axios.get<Blob>(`${BACKEND_URL}/teacher/analytics/export-pdf`, {
+        params: { groupId: selectedGroupId },
+        withCredentials: true,
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `analytics_${selectedGroupId}_${new Date().toISOString().split("T")[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [selectedGroupId]);
+
+  const fetchStudentDetail = useCallback(
+    async (studentId: string) => {
+      if (!selectedGroupId) return;
+      setIsLoadingStudentDetail(true);
+      try {
+        const res = await axios.get<StudentDetailResponse>(
+          `${BACKEND_URL}/teacher/analytics/students/${studentId}/details`,
+          {
+            params: { groupId: selectedGroupId },
+            withCredentials: true,
+          }
+        );
+        setExpandedStudentData({
+          ...res.data,
+          recentSubmissions: res.data.recentSubmissions.map((s) => ({
+            ...s,
+            createdAt: new Date(s.createdAt).toISOString(),
+          })),
+          examHistory: res.data.examHistory.map((e) => ({
+            ...e,
+            createdAt: new Date(e.createdAt).toISOString(),
+          })),
+        });
+      } finally {
+        setIsLoadingStudentDetail(false);
+      }
+    },
+    [selectedGroupId]
+  );
+
+  useEffect(() => {
+    fetchGroups();
+  }, [fetchGroups]);
+
+  useEffect(() => {
+    if (!selectedGroupId) return;
+    fetchStats();
+    fetchStudents();
+    fetchProblems();
+    fetchExams();
+    fetchChartTrend();
+  }, [selectedGroupId, fetchStats, fetchStudents, fetchProblems, fetchExams, fetchChartTrend]);
+
+  const chartData = useMemo(() => {
+    if (!students.length) return undefined;
+
+    const scoreDistribution: Record<string, number> = {
+      "0-20": 0,
+      "20-40": 0,
+      "40-60": 0,
+      "60-80": 0,
+      "80-100": 0,
+    };
+
+    students.forEach((s) => {
+      if (s.avgScore < 20) scoreDistribution["0-20"] += 1;
+      else if (s.avgScore < 40) scoreDistribution["20-40"] += 1;
+      else if (s.avgScore < 60) scoreDistribution["40-60"] += 1;
+      else if (s.avgScore < 80) scoreDistribution["60-80"] += 1;
+      else scoreDistribution["80-100"] += 1;
+    });
+
+    const completionDistribution = {
+      notStarted: students.filter((s) => s.completionPercentage === 0).length,
+      inProgress: students.filter(
+        (s) => s.completionPercentage > 0 && s.completionPercentage < 100
+      ).length,
+      completed: students.filter((s) => s.completionPercentage >= 100).length,
+    };
+
+    return {
+      scoreDistribution,
+      completionDistribution,
+      performanceTrend: chartTrend.length > 0
+        ? chartTrend
+        : [
+            {
+              date: "Current",
+              avgScore:
+                students.reduce((acc, s) => acc + s.avgScore, 0) /
+                Math.max(students.length, 1),
+              count: students.length,
+            },
+          ],
+      timeSpentByProblem: [],
+    };
+  }, [students]);
+
+  const overviewData = useMemo(() => {
+    if (!groupStats) return undefined;
+    return {
+      totalStudents: groupStats.totalStudents,
+      activeStudents: students.filter((s) => s.lastActive).length,
+      avgScore: groupStats.avgScoreAllExams,
+      completionRate:
+        students.reduce((acc, s) => acc + s.completionPercentage, 0) /
+        Math.max(students.length, 1),
+      overallPassRate: groupStats.overallPassRate,
+      avgAttempts:
+        students.reduce((acc, s) => acc + s.avgAttemptsPerProblem, 0) /
+        Math.max(students.length, 1),
+    };
+  }, [groupStats, students]);
+
+  const handleRowExpand = async (studentId: string) => {
+    if (expandedStudentId === studentId) {
+      setExpandedStudentId(null);
+      setExpandedStudentData(undefined);
+      return;
+    }
+    setExpandedStudentId(studentId);
+    await fetchStudentDetail(studentId);
+  };
+
+  const handleProblemExpand = async (problemId: string) => {
+    if (expandedProblemId === problemId) {
+      setExpandedProblemId(null);
+      setExpandedProblemDetails(undefined);
+      setExpandedProblemStudents(undefined);
+      return;
+    }
+
+    setExpandedProblemId(problemId);
+    setExpandedProblemDetails(undefined);
+    setExpandedProblemStudents(undefined);
+    setIsLoadingProblemDetail(true);
+    try {
+      await Promise.all([
+        fetchProblemDetails(problemId),
+        fetchProblemStudents(problemId),
+      ]);
+    } finally {
+      setIsLoadingProblemDetail(false);
+    }
+  };
+
+  const handleExamExpand = async (examId: string) => {
+    if (expandedExamId === examId) {
+      setExpandedExamId(null);
+      setExpandedExamData(undefined);
+      return;
+    }
+
+    setExpandedExamId(examId);
+    setExpandedExamData(undefined);
+    setIsLoadingExamDetail(true);
+    try {
+      await fetchExamDetails(examId);
+    } finally {
+      setIsLoadingExamDetail(false);
+    }
+  };
+
+  const selectedStudentName =
+    students.find((s) => s.id === expandedStudentId)?.name ?? "Student";
+
+  const selectedProblemName =
+    problems.find((p) => p.problemId === expandedProblemId)?.problemTitle ??
+    "Problem";
+
+  const selectedExamName =
+    exams.find((e) => e.examId === expandedExamId)?.examTitle ?? "Exam";
+
+  const canRender = !!selectedGroupId && canViewAnalytics;
+
+  return (
+    <div className="min-h-screen p-4 md:p-8 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Teacher Analytics</h1>
+          <p className="text-muted-foreground">
+            Track performance, completion, and student trends.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select
+            value={selectedGroupId || undefined}
+            onValueChange={(value) => {
+              setCurrentPage(1);
+              setProblemPage(1);
+              setExamPage(1);
+              setExpandedStudentId(null);
+              setExpandedStudentData(undefined);
+              setExpandedProblemId(null);
+              setExpandedProblemDetails(undefined);
+              setExpandedProblemStudents(undefined);
+              setExpandedExamId(null);
+              setExpandedExamData(undefined);
+              setSelectedGroupId(value);
+              updateUrlGroupId(value);
+            }}
+            disabled={isLoadingGroups || groups.length === 0}
+          >
+            <SelectTrigger className="w-[240px]">
+              <SelectValue
+                placeholder={
+                  isLoadingGroups ? "Loading groups..." : "Select group"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {groups.map((group) => (
+                <SelectItem key={group.id} value={group.id}>
+                  {group.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCSV}
+            disabled={isExporting || !canRender}
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportPDF}
+            disabled={isExporting || !canRender}
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {!isLoadingGroups && groups.length === 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>No groups found</CardTitle>
+          </CardHeader>
+          <CardContent>
+            Create a group first, then analytics will be available here.
+          </CardContent>
+        </Card>
+      )}
+
+      {!!selectedGroupId && !canViewAnalytics && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Not authorized</CardTitle>
+          </CardHeader>
+          <CardContent>
+            You do not have permission to view analytics for this group.
+          </CardContent>
+        </Card>
+      )}
+
+      {canRender && (
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) =>
+            setActiveTab(v as "overview" | "students" | "problems" | "exams")
+          }
+        >
+          <TabsList className="grid w-full max-w-md grid-cols-4">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="students">Students</TabsTrigger>
+            <TabsTrigger value="problems">Problems</TabsTrigger>
+            <TabsTrigger value="exams">Exams</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-6">
+            <OverviewCards
+              groupId={selectedGroupId}
+              isLoading={isLoadingStats}
+              data={overviewData}
+            />
+            <AnalyticsCharts
+              groupId={selectedGroupId}
+              isLoading={isLoadingStats}
+              data={chartData}
+            />
+          </TabsContent>
+
+          <TabsContent value="students" className="space-y-4">
+            <StudentFilters
+              onFilterChange={(next) => {
+                setCurrentPage(1);
+                setFilters(next);
+              }}
+              isLoading={isLoadingStudents}
+            />
+
+            <StudentTable
+              data={students}
+              isLoading={isLoadingStudents}
+              onRowExpand={handleRowExpand}
+            />
+
+            {expandedStudentId && (
+              <StudentExpandedRow
+                studentId={expandedStudentId}
+                studentName={selectedStudentName}
+                data={expandedStudentData}
+                isLoading={isLoadingStudentDetail}
+              />
+            )}
+
+            <AnalyticsPagination
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalItems={totalStudents}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              isLoading={isLoadingStudents}
+            />
+          </TabsContent>
+
+          <TabsContent value="problems">
+            <div className="space-y-4">
+              <ProblemFilters
+                onFilterChange={(next) => {
+                  setProblemPage(1);
+                  setProblemFilters(next);
+                }}
+                isLoading={isLoadingProblems}
+              />
+
+              <ProblemTable
+                data={problems}
+                isLoading={isLoadingProblems}
+                onRowExpand={handleProblemExpand}
+              />
+
+              {expandedProblemId && (
+                <ProblemExpandedRow
+                  problemName={selectedProblemName}
+                  isLoading={isLoadingProblemDetail}
+                  details={expandedProblemDetails}
+                  students={expandedProblemStudents}
+                />
+              )}
+
+              <AnalyticsPagination
+                currentPage={problemPage}
+                pageSize={problemPageSize}
+                totalItems={totalProblems}
+                onPageChange={setProblemPage}
+                onPageSizeChange={setProblemPageSize}
+                isLoading={isLoadingProblems}
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="exams">
+            <div className="space-y-4">
+              <ExamFilters
+                onFilterChange={(next) => {
+                  setExamPage(1);
+                  setExamFilters(next);
+                }}
+                isLoading={isLoadingExams}
+              />
+
+              <ExamTable
+                data={exams}
+                isLoading={isLoadingExams}
+                onRowExpand={handleExamExpand}
+              />
+
+              {expandedExamId && (
+                <ExamExpandedRow
+                  examName={selectedExamName}
+                  isLoading={isLoadingExamDetail}
+                  data={expandedExamData}
+                />
+              )}
+
+              <AnalyticsPagination
+                currentPage={examPage}
+                pageSize={examPageSize}
+                totalItems={totalExams}
+                onPageChange={setExamPage}
+                onPageSizeChange={setExamPageSize}
+                isLoading={isLoadingExams}
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
+      )}
+    </div>
+  );
+}

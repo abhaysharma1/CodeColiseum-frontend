@@ -1,0 +1,51 @@
+import { useAuth } from "@/features/authentication/auth-context";
+import { ProtectedRoute } from "@/components/protectedroute";
+import React, { useEffect, useState } from "react";
+import { StudentSidebar } from "@/components/student-sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { usePathname } from "@/lib/navigation";
+import { Outlet } from "react-router-dom";
+
+export default function StudentLayout() {
+  const { user, loading } = useAuth();
+  const path = usePathname();
+  const [page, setPage] = useState("");
+
+  // Client-side cross-role guard: if a non-student lands here, redirect away.
+  useEffect(() => {
+    if (user && !loading && user.globalRoleId !== "role_org_student") {
+      window.location.href = "/dashboard";
+    }
+  }, [user, loading]);
+
+  useEffect(() => {
+    if (path === "/dashboard/student") {
+      setPage("DASHBOARD");
+    } else if (path.startsWith("/dashboard/student/problem-list")) {
+      setPage("PROBLEMS");
+    } else if (path.startsWith("/dashboard/student/contests")) {
+      setPage("CONTESTS");
+    } else if (path.startsWith("/dashboard/student/progress")) {
+      setPage("PROGRESS");
+    } else if (path.startsWith("/dashboard/student/classes")) {
+      setPage("CLASSES");
+    } else if (path.startsWith("/dashboard/student/labs")) {
+      setPage("LABS");
+    } else if (path.startsWith("/dashboard/student/notifications")) {
+      setPage("NOTIFICATIONS");
+    } else {
+      setPage("DASHBOARD");
+    }
+  }, [path]);
+
+  return (
+    <ProtectedRoute requiredPermission="group:view">
+      <SidebarProvider>
+        <StudentSidebar user={user} variant="inset" page={page} />
+        <SidebarInset>
+          <Outlet />
+        </SidebarInset>
+      </SidebarProvider>
+    </ProtectedRoute>
+  );
+}
